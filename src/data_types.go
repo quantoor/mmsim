@@ -11,41 +11,53 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	SIDE_BUY  string = "buy"
-	SIDE_SELL string = "sell"
-)
-
 //
 type LimitOrder struct {
 	Id              string
 	Symbol          string
 	Timestamp       int64
 	Price           float64
-	Amount          float64
-	Side            string
+	Size            float64
+	IsBuy           bool
 	FilledTimestamp int64
 	RealizedPnl     float64
 }
 
-func NewLimitOrder(id string, symbol string, timestamp int64, price float64, amount float64, side string) *LimitOrder {
+func NewLimitOrder(symbol string, price float64, amount float64, isBuy bool) *LimitOrder {
 	return &LimitOrder{
-		Id:              id,
 		Symbol:          symbol,
-		Timestamp:       timestamp,
 		Price:           price,
-		Amount:          amount,
-		Side:            side,
+		Size:            amount,
+		IsBuy:           isBuy,
 		FilledTimestamp: 0,
 		RealizedPnl:     0,
 	}
 }
 
+func (l *LimitOrder) ComputeRealizedPnl(position *Position) {
+	realizedPnl := 0.0
+
+	if position.Size < 0 && l.IsBuy {
+		realizedPnl = (position.AveragePrice - l.Price) * l.Size
+
+	} else if position.Size > 0 && !l.IsBuy {
+		realizedPnl = (l.Price - position.AveragePrice) * l.Size
+	}
+
+	l.RealizedPnl = realizedPnl
+}
+
+func (l *LimitOrder) String() string {
+	side := "sell"
+	if l.IsBuy {
+		side = "buy"
+	}
+	return fmt.Sprintf("symbol %s, price %f, size %f, side %s, realized pnl %f", l.Symbol, l.Price, l.Size, side, l.RealizedPnl)
+}
+
 //
 type Position struct {
 	Symbol       string
-	BaseAsset    string
-	QuoteAsset   string
 	Size         float64
 	AveragePrice float64
 }
@@ -112,9 +124,9 @@ func (d *TickData) writeToFile(filePath string) error {
 }
 
 func NewSymbolDataFromProcessedFile(filePath string) *TickData {
-	symbolData := &TickData{}
-	symbolData.readFromFile(filePath)
-	return symbolData
+	tickData := &TickData{}
+	tickData.readFromFile(filePath)
+	return tickData
 }
 
 func NewSymbolDataFromTickDataFolder(folderPath string) *TickData {
@@ -127,13 +139,13 @@ func NewSymbolDataFromTickDataFolder(folderPath string) *TickData {
 	})
 	failOnError(err, fmt.Sprintf("Could not get files in folder %s", folderPath))
 
-	symbolData := &TickData{}
+	tickData := &TickData{}
 	for _, file := range files {
-		symbolData.append(processTickData(file))
+		tickData.append(processTickData(file))
 	}
 
-	symbolData.writeToFile("../datasets/DOGE_1s.csv")
-	return symbolData
+	tickData.writeToFile("../datasets/DOGE_1s.csv")
+	return tickData
 }
 
 func processTickData(filePath string) *TickData {

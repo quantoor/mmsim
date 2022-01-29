@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 type Simulator struct {
 	exchange    *Exchange
 	marketMaker *MarketMaker
@@ -9,11 +11,7 @@ type Simulator struct {
 func NewSimulator(dataPath string) *Simulator {
 
 	exchange := NewExchange()
-	marketMaker := NewMarketMaker()
-
-	// link market maker and exchange through callbacks
-	marketMaker.SetExchangeAPI(exchange.GetAPI())
-	exchange.NotifyTickUpdate = marketMaker.HandleTickUpdate
+	marketMaker := NewMarketMaker(exchange.GetAPI())
 
 	return &Simulator{
 		exchange:    exchange,
@@ -25,6 +23,13 @@ func NewSimulator(dataPath string) *Simulator {
 func (s *Simulator) Start() {
 
 	for _, tick := range s.tickData.Data {
-		s.exchange.Next(tick)
+
+		s.exchange.ProcessNextTick(tick)
+		s.marketMaker.ProcessNextTick(tick)
 	}
+}
+
+func (s *Simulator) GetResults() {
+	fmt.Println("Position size", s.exchange.position.Size)
+	fmt.Println(s.exchange.getFilledOrders())
 }

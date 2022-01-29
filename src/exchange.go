@@ -1,25 +1,30 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	log "github.com/sirupsen/logrus"
+)
 
 type ExchangeAPI struct {
-	PlaceOrder          func(LimitOrder)
-	CancelOrder         func(string) bool
-	OpenOrders          func() map[string]LimitOrder
-	GetMarkPrice        func() float64
-	GetBalance          func() float64
-	GetPosition         func() *Position
-	GetCurrentTimestamp func() int64
+	PlaceOrder      func(LimitOrder)
+	CancelOrder     func(string) bool
+	CancelAllOrders func()
+	GetOpenOrders   func() []LimitOrder
+	GetFilledOrders func() []LimitOrder
+	GetMarkPrice    func() float64
+	GetBalance      func() float64
+	GetPosition     func() *Position
+	GetTimestamp    func() int64
 }
 
 type Exchange struct {
-	timestamp  int64
-	markPrice  float64
-	balance    float64
-	position   *Position
-	openOrders map[string]LimitOrder
-
-	NotifyTickUpdate func(Tick) // callback to notify the market maker
+	timestamp    int64
+	markPrice    float64
+	balance      float64
+	position     *Position
+	openOrders   map[string]LimitOrder
+	filledOrders map[string]LimitOrder
 
 	orderIdCounter int64 // used for order ID
 }
@@ -28,87 +33,64 @@ func NewExchange() *Exchange {
 	return &Exchange{
 		position:       &Position{},
 		openOrders:     make(map[string]LimitOrder),
+		filledOrders:   make(map[string]LimitOrder),
 		orderIdCounter: 0,
 	}
 }
 
 // PUBLIC METHODS
-func (e *Exchange) Init(balance float64, tick Tick) {
-	e.timestamp = tick.Timestamp
-	e.markPrice = tick.Price
-}
+func (e *Exchange) ProcessNextTick(tick Tick) {
 
-func (e *Exchange) Next(tick Tick) {
-	// log.Debugf("### Next tick: date %s, mark price %.2f", tick.Time.String(), tick.Price)
 	e.timestamp = tick.Timestamp
 	e.markPrice = tick.Price
 
-	ordersToExecute := e.getOrdersToExecute()
-	for _, order := range ordersToExecute {
-		e.executeOrder(order)
+	// look for open orders to execute
+	for _, order := range e.openOrders {
+
+		if order.IsBuy && order.Price >= e.markPrice {
+			e.executeOrder(order)
+
+		} else if !order.IsBuy && order.Price <= e.markPrice {
+			e.executeOrder(order)
+		}
 	}
 }
 
 func (e *Exchange) GetAPI() *ExchangeAPI {
 	return &ExchangeAPI{
-		PlaceOrder:          e.placeOrder,
-		CancelOrder:         e.cancelOrder,
-		OpenOrders:          e.getOpenOrders,
-		GetMarkPrice:        e.getMarkPrice,
-		GetBalance:          e.getBalance,
-		GetPosition:         e.getPosition,
-		GetCurrentTimestamp: e.getCurrentTimestamp,
+		PlaceOrder:      e.placeOrder,
+		CancelOrder:     e.cancelOrder,
+		CancelAllOrders: e.cancelAllOrders,
+		GetOpenOrders:   e.getOpenOrders,
+		GetFilledOrders: e.getFilledOrders,
+		GetMarkPrice:    e.getMarkPrice,
+		GetBalance:      e.getBalance,
+		GetPosition:     e.getPosition,
+		GetTimestamp:    e.getTimestamp,
 	}
 }
 
 // PRIVATE METHODS
-func (e *Exchange) getOrdersToExecute() map[string]LimitOrder {
-
-	ordersToExecute := make(map[string]LimitOrder)
-	for key, order := range e.openOrders {
-		if order.Side == SIDE_BUY && order.Price >= e.markPrice {
-			ordersToExecute[key] = order
-		}
-	}
-
-	return ordersToExecute
-}
-
 func (e *Exchange) executeOrder(order LimitOrder) {
-	// log.Debugf("Exchange: execute order %s", order.String())
-	// if order.PositionSide == PositionSideLong {
-	// 	if _, ok := e.sessionLong.openOrders[order.ID]; ok {
-	// 		delete(e.sessionLong.openOrders, order.ID)
-	// 	} else {
-	// 		log.Panic("Order id not found in open orders")
-	// 	}
-	// 	e.sessionLong.orderAmount = order.Amount
-	// 	e.sessionLong.orderPrice = order.Price
-	// 	realizedProfit := e.sessionLong.position.Update(order)
-	// 	e.sessionLong.realizedProfit = realizedProfit
-	// 	e.balance += realizedProfit
-	// 	if !order.IsTP { // don't update grid reached to 0 if is TP order, this is for the statistics
-	// 		e.sessionLong.gridReached = order.GridNumber
-	// 	}
-	// 	log.Debugf("Exchange: updated position %s", e.sessionLong.position.String())
-	// 	e.NotifyPositionUpdateCallback(e.sessionLong.position)
-	// } else {
-	// 	if _, ok := e.sessionShort.openOrders[order.ID]; ok {
-	// 		delete(e.sessionShort.openOrders, order.ID)
-	// 	} else {
-	// 		log.Panic("Order id not found in open orders")
-	// 	}
-	// 	e.sessionShort.orderAmount = order.Amount
-	// 	e.sessionShort.orderPrice = order.Price
-	// 	realizedProfit := e.sessionShort.position.Update(order)
-	// 	e.sessionShort.realizedProfit = realizedProfit
-	// 	e.balance += realizedProfit
-	// 	if !order.IsTP { // don't update grid reached to 0 if is TP order, this is for the statistics
-	// 		e.sessionShort.gridReached = order.GridNumber
-	// 	}
-	// 	log.Debugf("Exchange: updated position %s", e.sessionShort.position.String())
-	// 	e.NotifyPositionUpdateCallback(e.sessionShort.position)
-	// }
+
+	log.Debugf("Execute order %s", order.String())
+
+	// update order
+	order.FilledTimestamp = e.timestamp
+	order.ComputeRealizedPnl(e.position)
+
+	// update open orders
+	delete(e.openOrders, order.Id)
+
+	// update filled orders
+	e.filledOrders[order.Id] = order
+
+	// update position
+	if order.IsBuy {
+		e.position.Size += order.Size
+	} else {
+		e.position.Size -= order.Size
+	}
 }
 
 func (e *Exchange) placeOrder(order LimitOrder) {
@@ -128,8 +110,28 @@ func (e *Exchange) cancelOrder(id string) bool {
 	return false
 }
 
-func (e *Exchange) getOpenOrders() map[string]LimitOrder {
-	return e.openOrders
+func (e *Exchange) cancelAllOrders() {
+	e.openOrders = make(map[string]LimitOrder)
+}
+
+func (e *Exchange) getOpenOrders() []LimitOrder {
+
+	orders := make([]LimitOrder, 0)
+	for _, order := range e.openOrders {
+		orders = append(orders, order)
+	}
+
+	return orders
+}
+
+func (e *Exchange) getFilledOrders() []LimitOrder {
+
+	orders := make([]LimitOrder, 0)
+	for _, order := range e.filledOrders {
+		orders = append(orders, order)
+	}
+
+	return orders
 }
 
 func (e *Exchange) getMarkPrice() float64 {
@@ -144,6 +146,6 @@ func (e *Exchange) getPosition() *Position {
 	return e.position
 }
 
-func (e *Exchange) getCurrentTimestamp() int64 {
+func (e *Exchange) getTimestamp() int64 {
 	return e.timestamp
 }

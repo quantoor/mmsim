@@ -12,59 +12,61 @@ import (
 )
 
 const (
-	SideBuy  string = "buy"
-	SideSell string = "sell"
+	SIDE_BUY  string = "buy"
+	SIDE_SELL string = "sell"
 )
 
 //
 type LimitOrder struct {
-	Id          string
-	Symbol      string
-	Timestamp   int64
-	Price       float64
-	Amount      float64
-	Side        string
-	FilledTs    int64
-	RealizedPnl float64
+	Id              string
+	Symbol          string
+	Timestamp       int64
+	Price           float64
+	Amount          float64
+	Side            string
+	FilledTimestamp int64
+	RealizedPnl     float64
 }
 
 func NewLimitOrder(id string, symbol string, timestamp int64, price float64, amount float64, side string) *LimitOrder {
 	return &LimitOrder{
-		Id:          id,
-		Symbol:      symbol,
-		Timestamp:   timestamp,
-		Price:       price,
-		Amount:      amount,
-		Side:        side,
-		FilledTs:    0,
-		RealizedPnl: 0,
+		Id:              id,
+		Symbol:          symbol,
+		Timestamp:       timestamp,
+		Price:           price,
+		Amount:          amount,
+		Side:            side,
+		FilledTimestamp: 0,
+		RealizedPnl:     0,
 	}
 }
 
 //
 type Position struct {
 	Symbol       string
+	BaseAsset    string
+	QuoteAsset   string
 	Size         float64
 	AveragePrice float64
 }
 
 //
-type SymbolDataItem struct {
+type Tick struct {
 	Timestamp int64
 	Price     float64
 }
 
-type SymbolData struct {
+type TickData struct {
 	Symbol string
-	Data   []SymbolDataItem
+	Data   []Tick
 }
 
-func (d *SymbolData) readFromFile(path string) {
+func (d *TickData) readFromFile(path string) {
 	file, err := os.Open(path)
 	failOnError(err, fmt.Sprintf("Could not open file %s", path))
 	defer file.Close()
 
-	d.Data = make([]SymbolDataItem, 0)
+	d.Data = make([]Tick, 0)
 	scanner := bufio.NewScanner(file)
 	scanner.Scan() // skip header
 	for scanner.Scan() {
@@ -76,17 +78,17 @@ func (d *SymbolData) readFromFile(path string) {
 		price, err := strconv.ParseFloat(values[1], 64)
 		failOnError(err, "Error parsing price")
 
-		d.Data = append(d.Data, SymbolDataItem{Timestamp: int64(timestamp), Price: price})
+		d.Data = append(d.Data, Tick{Timestamp: int64(timestamp), Price: price})
 	}
 	err = scanner.Err()
 	failOnError(err, "Scanner error")
 }
 
-func (d *SymbolData) append(symbolData *SymbolData) {
+func (d *TickData) append(symbolData *TickData) {
 	d.Data = append(d.Data, symbolData.Data...)
 }
 
-func (d *SymbolData) writeToFile(filePath string) error {
+func (d *TickData) writeToFile(filePath string) error {
 	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
@@ -109,13 +111,13 @@ func (d *SymbolData) writeToFile(filePath string) error {
 	return nil
 }
 
-func NewSymbolDataFromProcessedFile(filePath string) *SymbolData {
-	symbolData := &SymbolData{}
+func NewSymbolDataFromProcessedFile(filePath string) *TickData {
+	symbolData := &TickData{}
 	symbolData.readFromFile(filePath)
 	return symbolData
 }
 
-func NewSymbolDataFromTickDataFolder(folderPath string) *SymbolData {
+func NewSymbolDataFromTickDataFolder(folderPath string) *TickData {
 	var files []string
 	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
 		if filepath.Ext(path) == ".csv" {
@@ -125,7 +127,7 @@ func NewSymbolDataFromTickDataFolder(folderPath string) *SymbolData {
 	})
 	failOnError(err, fmt.Sprintf("Could not get files in folder %s", folderPath))
 
-	symbolData := &SymbolData{}
+	symbolData := &TickData{}
 	for _, file := range files {
 		symbolData.append(processTickData(file))
 	}
@@ -134,15 +136,15 @@ func NewSymbolDataFromTickDataFolder(folderPath string) *SymbolData {
 	return symbolData
 }
 
-func processTickData(filePath string) *SymbolData {
+func processTickData(filePath string) *TickData {
 	log.Infof("Processing tick data file: %s", filePath)
 
 	file, err := os.Open(filePath)
 	failOnError(err, fmt.Sprintf("Could not open file %s", filePath))
 	defer file.Close()
 
-	symbolData := &SymbolData{}
-	symbolData.Data = make([]SymbolDataItem, 0)
+	symbolData := &TickData{}
+	symbolData.Data = make([]Tick, 0)
 	scanner := bufio.NewScanner(file)
 	scanner.Scan() // skip header
 
@@ -159,7 +161,7 @@ func processTickData(filePath string) *SymbolData {
 
 		if timestamp >= (lastTimestamp + 1) { // append new value only if 1 second has passed
 			lastTimestamp = timestamp
-			symbolData.Data = append(symbolData.Data, SymbolDataItem{Timestamp: int64(lastTimestamp), Price: price})
+			symbolData.Data = append(symbolData.Data, Tick{Timestamp: int64(lastTimestamp), Price: price})
 		}
 	}
 	err = scanner.Err()

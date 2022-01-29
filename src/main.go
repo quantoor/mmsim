@@ -2,9 +2,7 @@ package main
 
 func main() {
 
-	simulator := NewSimulator()
-
-	strategy := NewStrategy()
-	simulator.Start("../datasets/DOGE_1s.csv", strategy)
+	simulator := NewSimulator("../datasets/DOGE_1s.csv")
+	simulator.Start()
 	// simulator.Start("../datasets/test_doge")
 }

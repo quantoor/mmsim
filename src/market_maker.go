@@ -4,13 +4,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const (
-	START_SPREAD                    = 0.2 // as % of mark price
-	START_ORDER_SIZE                = 1
-	WAIT_TIME_BEFORE_REQUOTING_ONE  = 10 // seconds
-	WAIT_TIME_BEFORE_REQUOTING_BOTH = 5  // seconds
-)
-
 type MarketMaker struct {
 	exchangeAPI  *ExchangeAPI
 	timestamp    int64

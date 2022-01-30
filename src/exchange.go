@@ -6,6 +6,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	START_BALANCE = 1000
+)
+
 type ExchangeAPI struct {
 	PlaceOrder      func(LimitOrder)
 	CancelOrder     func(string) bool
@@ -32,6 +36,7 @@ type Exchange struct {
 func NewExchange() *Exchange {
 	return &Exchange{
 		position:       &Position{},
+		balance:        START_BALANCE,
 		openOrders:     make(map[string]LimitOrder),
 		filledOrders:   make(map[string]LimitOrder),
 		orderIdCounter: 0,
@@ -78,6 +83,9 @@ func (e *Exchange) executeOrder(order LimitOrder) {
 	// update order
 	order.FilledTimestamp = e.timestamp
 	order.ComputeRealizedPnl(e.position)
+
+	// update balance
+	e.balance += order.RealizedPnl
 
 	// update open orders
 	delete(e.openOrders, order.Id)

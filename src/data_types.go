@@ -69,13 +69,15 @@ type Tick struct {
 }
 
 type TickData struct {
-	Symbol string
-	Data   []Tick
+	Symbol    string
+	StartDate string
+	EndDate   string
+	Data      []Tick
 }
 
 func (d *TickData) readFromFile(path string) {
 	file, err := os.Open(path)
-	failOnError(err, fmt.Sprintf("Could not open file %s", path))
+	FailOnError(err, fmt.Sprintf("Could not open file %s", path))
 	defer file.Close()
 
 	d.Data = make([]Tick, 0)
@@ -86,14 +88,17 @@ func (d *TickData) readFromFile(path string) {
 		values := strings.Split(line, ",")
 
 		timestamp, err := strconv.ParseFloat(values[0], 64)
-		failOnError(err, "Error parsing timestamp")
+		FailOnError(err, "Error parsing timestamp")
 		price, err := strconv.ParseFloat(values[1], 64)
-		failOnError(err, "Error parsing price")
+		FailOnError(err, "Error parsing price")
 
 		d.Data = append(d.Data, Tick{Timestamp: int64(timestamp), Price: price})
 	}
 	err = scanner.Err()
-	failOnError(err, "Scanner error")
+	FailOnError(err, "Scanner error")
+
+	d.StartDate = TimestampToDate(d.Data[0].Timestamp)
+	d.EndDate = TimestampToDate(d.Data[len(d.Data)-1].Timestamp)
 }
 
 func (d *TickData) append(symbolData *TickData) {
@@ -137,7 +142,7 @@ func NewSymbolDataFromTickDataFolder(folderPath string) *TickData {
 		}
 		return nil
 	})
-	failOnError(err, fmt.Sprintf("Could not get files in folder %s", folderPath))
+	FailOnError(err, fmt.Sprintf("Could not get files in folder %s", folderPath))
 
 	tickData := &TickData{}
 	for _, file := range files {
@@ -152,7 +157,7 @@ func processTickData(filePath string) *TickData {
 	log.Infof("Processing tick data file: %s", filePath)
 
 	file, err := os.Open(filePath)
-	failOnError(err, fmt.Sprintf("Could not open file %s", filePath))
+	FailOnError(err, fmt.Sprintf("Could not open file %s", filePath))
 	defer file.Close()
 
 	symbolData := &TickData{}
@@ -167,9 +172,9 @@ func processTickData(filePath string) *TickData {
 
 		timestamp, err := strconv.Atoi(values[5])
 		timestamp /= 1000 // convert to seconds
-		failOnError(err, "Error parsing timestamp")
+		FailOnError(err, "Error parsing timestamp")
 		price, err := strconv.ParseFloat(values[2], 64)
-		failOnError(err, "Error parsing price")
+		FailOnError(err, "Error parsing price")
 
 		if timestamp >= (lastTimestamp + 1) { // append new value only if 1 second has passed
 			lastTimestamp = timestamp
@@ -177,12 +182,47 @@ func processTickData(filePath string) *TickData {
 		}
 	}
 	err = scanner.Err()
-	failOnError(err, "Scanner error")
+	FailOnError(err, "Scanner error")
 	return symbolData
 }
 
-func failOnError(err error, msg string) {
-	if err != nil {
-		log.Panic(msg)
+//
+type ResultsData struct {
+	Timestamp int64
+	Price     float64
+	Bids      []float64
+	Asks      []float64
+	Balance   float64
+	Position  float64
+}
+
+type ResultsHandler struct {
+	Data []ResultsData
+}
+
+func NewResultsHandler() *ResultsHandler {
+	return &ResultsHandler{
+		Data: []ResultsData{},
 	}
+}
+
+func (r *ResultsHandler) writeToFile(filePath string) {
+
+	err := os.MkdirAll(filepath.Dir(filePath), os.ModePerm)
+	FailOnError(err, "Could not create results folder")
+
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	FailOnError(err, "Could not create result file")
+	defer file.Close()
+
+	datawriter := bufio.NewWriter(file)
+	_, err = datawriter.WriteString("Timestamp,Price,Bids,Asks,Balance,Position\n")
+	FailOnError(err, "Error writing header of file")
+
+	for _, di := range r.Data {
+		_, err = datawriter.WriteString(fmt.Sprintf("%d,%f,%s,%s,%f,%f\n", di.Timestamp, di.Price, fmt.Sprint(di.Bids), fmt.Sprint(di.Asks), di.Balance, di.Position))
+		FailOnError(err, "Error writing status to result file")
+	}
+
+	datawriter.Flush()
 }
